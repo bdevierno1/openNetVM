@@ -207,9 +207,6 @@ rx_thread_main(void *arg) {
         }
 
         RTE_LOG(INFO, APP, "Core %d: RX thread done\n", rte_lcore_id());
-
-        free(rx_mgr->nf_rx_bufs);
-        free(rx_mgr);
         return 0;
 }
 
@@ -254,11 +251,6 @@ tx_thread_main(void *arg) {
         }
 
         RTE_LOG(INFO, APP, "Core %d: TX thread done\n", rte_lcore_id());
-
-        free(tx_mgr->tx_thread_info->port_tx_bufs);
-        free(tx_mgr->tx_thread_info);
-        free(tx_mgr->nf_rx_bufs);
-        free(tx_mgr);
         return 0;
 }
 
@@ -373,34 +365,52 @@ main(int argc, char *argv[]) {
         signal(SIGINT, handle_signal);
         signal(SIGTERM, handle_signal);
 
+        struct queue_mgr *tx_mgr[tx_lcores];
         for (i = 0; i < tx_lcores; i++) {
-                struct queue_mgr *tx_mgr = calloc(1, sizeof(struct queue_mgr));
-                tx_mgr->mgr_type_t = MGR;
-                tx_mgr->id = i;
-                tx_mgr->tx_thread_info = calloc(1, sizeof(struct tx_thread_info));
-                tx_mgr->tx_thread_info->port_tx_bufs = calloc(RTE_MAX_ETHPORTS, sizeof(struct packet_buf));
-                tx_mgr->nf_rx_bufs = calloc(MAX_NFS, sizeof(struct packet_buf));
-                tx_mgr->tx_thread_info->first_nf = RTE_MIN(i * nfs_per_tx + 1, (unsigned)MAX_NFS);
-                tx_mgr->tx_thread_info->last_nf = RTE_MIN((i + 1) * nfs_per_tx + 1, (unsigned)MAX_NFS);
+                tx_mgr[i] = calloc(1, sizeof(struct queue_mgr));
+                if (tx_mgr[i] == NULL) {
+                        RTE_LOG(ERR, APP, "Can't allocate queue_mgr struct\n");
+                        return -1;
+                }
+                tx_mgr[i]->mgr_type_t = MGR;
+                tx_mgr[i]->id = i;
+                tx_mgr[i]->tx_thread_info = calloc(1, sizeof(struct tx_thread_info));
+                if (tx_mgr[i]->tx_thread_info == NULL) {
+                        RTE_LOG(ERR, APP, "Can't allocate tx_thread_info struct\n");
+                        return -1;
+                }
+                tx_mgr[i]->tx_thread_info->port_tx_bufs = calloc(RTE_MAX_ETHPORTS, sizeof(struct packet_buf));
+                tx_mgr[i]->nf_rx_bufs = calloc(MAX_NFS, sizeof(struct packet_buf));
+                tx_mgr[i]->tx_thread_info->first_nf = RTE_MIN(i * nfs_per_tx + 1, (unsigned)MAX_NFS);
+                tx_mgr[i]->tx_thread_info->last_nf = RTE_MIN((i + 1) * nfs_per_tx + 1, (unsigned)MAX_NFS);
                 cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
-                if (rte_eal_remote_launch(tx_thread_main, (void *)tx_mgr, cur_lcore) == -EBUSY) {
+                if (rte_eal_remote_launch(tx_thread_main, (void *)tx_mgr[i], cur_lcore) == -EBUSY) {
                         RTE_LOG(ERR, APP, "Core %d is already busy, can't use for nf %d TX\n", cur_lcore,
-                                tx_mgr->tx_thread_info->first_nf);
+                                tx_mgr[i]->tx_thread_info->first_nf);
                         return -1;
                 }
         }
 
+        struct queue_mgr *rx_mgr[rx_lcores];
         /* Launch RX thread main function for each RX queue on cores */
         for (i = 0; i < rx_lcores; i++) {
-                struct queue_mgr *rx_mgr = calloc(1, sizeof(struct queue_mgr));
-                rx_mgr->mgr_type_t = MGR;
-                rx_mgr->id = i;
-                rx_mgr->tx_thread_info = NULL;
-                rx_mgr->nf_rx_bufs = calloc(MAX_NFS, sizeof(struct packet_buf));
+                rx_mgr[i] = calloc(1, sizeof(struct queue_mgr));
+                if (rx_mgr[i] == NULL) {
+                        RTE_LOG(ERR, APP, "Can't allocate queue_mgr struct\n");
+                        return -1;
+                }
+                rx_mgr[i]->mgr_type_t = MGR;
+                rx_mgr[i]->id = i;
+                rx_mgr[i]->tx_thread_info = NULL;
+                rx_mgr[i]->nf_rx_bufs = calloc(MAX_NFS, sizeof(struct packet_buf));
+                if (rx_mgr[i] -> nf_rx_bufs == NULL) {
+                        RTE_LOG(ERR, APP, "Can't allocate packet_buf struct\n");
+                        return -1;
+                }
                 cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
-                if (rte_eal_remote_launch(rx_thread_main, (void *)rx_mgr, cur_lcore) == -EBUSY) {
+                if (rte_eal_remote_launch(rx_thread_main, (void *)rx_mgr[i], cur_lcore) == -EBUSY) {
                         RTE_LOG(ERR, APP, "Core %d is already busy, can't use for RX queue id %d\n", cur_lcore,
-                                rx_mgr->id);
+                                rx_mgr[i]->id);
                         return -1;
                 }
         }
@@ -425,5 +435,15 @@ main(int argc, char *argv[]) {
         }
         /* Master thread handles statistics and NF management */
         master_thread_main();
+        for (i = 0; i < tx_lcores; i++) {
+                free(tx_mgr[i]->tx_thread_info->port_tx_bufs);
+                free(tx_mgr[i]->tx_thread_info);
+                free(tx_mgr[i]->nf_rx_bufs);
+                free(tx_mgr[i]);
+        }
+        for (i = 0; i < rx_lcores; i++) {
+                free(rx_mgr[i]->nf_rx_bufs);
+                free(rx_mgr[i]);
+        }
         return 0;
 }

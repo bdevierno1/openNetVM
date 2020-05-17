@@ -1348,17 +1348,20 @@ onvm_nflib_stats_summary_output(uint16_t id) {
 
         if (snprintf(csv_filename, strlen(nf_tag) + 1, "%s", nf_tag) < 0) {
                 printf("Error: Could not copy buffer into csv filename for %s\n", nf_tag);
+                free(csv_filename);
                 return;
         }
 
         if (strncat(csv_filename, csv_suffix, strlen(csv_suffix)) == NULL) {
                 printf("Error: Could not strcat csv filename for %s\n", nf_tag);
+                free(csv_filename);
                 return;
         }
 
         csv_fp = fopen(csv_filename, "w");
         if (csv_fp == NULL) {
                 printf("Error: Could not open csv_stats file\n");
+                free(csv_filename);
                 return;
         }
 
@@ -1380,6 +1383,7 @@ onvm_nflib_stats_summary_output(uint16_t id) {
 
         if (fclose(csv_fp) != 0) {
                 printf("Error: Could not close csv_stats file\n");
+                free(csv_filename);
                 return;
         }
 
