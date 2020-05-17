@@ -264,6 +264,7 @@ onvm_stats_gen_event_nf_info(const char *msg, struct onvm_nf *nf) {
 static void
 onvm_stats_add_event(struct onvm_event *event_info) {
         if (event_info == NULL || stats_destination != ONVM_STATS_WEB) {
+                free(event_info);
                 return;
         }
         char event_time_buf[20];
@@ -305,6 +306,7 @@ onvm_stats_add_event(struct onvm_event *event_info) {
 
         cJSON_AddItemToObject(new_event, "source", source);
         cJSON_AddItemToArray(onvm_json_events_arr, new_event);
+        free(event_info);
 }
 
 static void

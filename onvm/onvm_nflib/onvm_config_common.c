@@ -106,6 +106,7 @@ onvm_config_extract_corelist(cJSON* dpdk_config, int* size, int** list) {
 
         local_list = (int*)malloc(*size * sizeof(int));
         if (*list == NULL) {
+                free(local_list);
                 return -1;
         }
 
@@ -287,6 +288,7 @@ onvm_config_create_nf_arg_list(cJSON* config, int* argc, char** argv[]) {
 
         new_argv[0] = (char*)malloc(strlen((*argv)[0]));
         if (new_argv[0] == NULL) {
+                free(new_argv);
                 return -1;
         }
 
@@ -410,6 +412,7 @@ onvm_config_create_onvm_args(cJSON* onvm_config, int* onvm_argc, char** onvm_arg
         (*onvm_argv)[0] = malloc(sizeof(char) * strlen(FLAG_R));
         if ((*onvm_argv)[0] == NULL) {
                 printf("Unable to allocate space for onvm_argv[0]\n");
+                free(service_id_string);
                 return -1;
         }
 
@@ -428,6 +431,7 @@ onvm_config_create_onvm_args(cJSON* onvm_config, int* onvm_argc, char** onvm_arg
                 (*onvm_argv)[2] = malloc(sizeof(char) * strlen(FLAG_N));
                 if ((*onvm_argv)[2] == NULL) {
                         printf("Could not allocate space for instance id in argv\n");
+                        free(instance_id_string);
                         return -1;
                 }
                 strncpy((*onvm_argv)[2], FLAG_N, strlen(FLAG_N));
@@ -464,12 +468,16 @@ onvm_config_create_dpdk_args(cJSON* dpdk_config, int* dpdk_argc, char** dpdk_arg
 
         arg_size = (size_t*)malloc(sizeof(size_t) * (*dpdk_argc));
         if (arg_size == NULL) {
+                printf("Unable to allocate space for arg size\n");
+                free(*dpdk_argv);
                 return -1;
         }
 
         core_string = (char*)malloc(sizeof(char) * strlen(cJSON_GetObjectItem(dpdk_config, "corelist")->valuestring));
         if (core_string == NULL) {
                 printf("Unable to allocate space for core string\n");
+                free(*dpdk_argv);
+                free(arg_size);
                 return -1;
         }
 
@@ -478,6 +486,9 @@ onvm_config_create_dpdk_args(cJSON* dpdk_config, int* dpdk_argc, char** dpdk_arg
 
         if (onvm_config_extract_memory_channels(dpdk_config, &mem_channels) < 0) {
                 printf("Unable to extract memory channels\n");
+                free(*dpdk_argv);
+                free(core_string);
+                free(arg_size);
                 return -1;
         }
 
@@ -485,6 +496,9 @@ onvm_config_create_dpdk_args(cJSON* dpdk_config, int* dpdk_argc, char** dpdk_arg
         mem_channels_string = (char*)malloc(mem_channels_string_size);
         if (mem_channels_string == NULL) {
                 printf("Unable to allocate space for memory channels string\n");
+                free(*dpdk_argv);
+                free(core_string);
+                free(arg_size);
                 return -1;
         }
 
@@ -501,6 +515,11 @@ onvm_config_create_dpdk_args(cJSON* dpdk_config, int* dpdk_argc, char** dpdk_arg
                 (*dpdk_argv)[i] = (char*)malloc(arg_size[i]);
 
                 if ((*dpdk_argv)[i] == NULL) {
+                        printf("Unable to allocate space for **dpdk_argv\n");
+                        free(*dpdk_argv);
+                        free(core_string);
+                        free(arg_size);
+                        free(mem_channels_string);
                         return -1;
                 }
         }
