@@ -302,21 +302,50 @@ wakeup_thread_main(void *arg) {
         return 0;
 }
 
-/*******************************Main function*********************************/
+/*
+ * Function to free all allocated memory from main function.
+ */
 static void
-onvm_main_free(unsigned tx_lcores, unsigned rx_lcores, struct queue_mgr *tx_mgr[], struct queue_mgr *rx_mgr[]){
+onvm_main_free(unsigned tx_lcores, unsigned rx_lcores, struct queue_mgr *tx_mgr[], struct queue_mgr *rx_mgr[], struct wakeup_thread_context *wakeup_ctx[]){
         unsigned i;
         for (i = 0; i < tx_lcores; i++) {
+                if (tx_mgr[i]-> nf_rx_bufs == NULL){
+                        break;
+                }
+                free(tx_mgr[i]-> nf_rx_bufs);
+                if (tx_mgr[i]->tx_thread_info->port_tx_bufs == NULL){
+                        break;
+                }
                 free(tx_mgr[i]->tx_thread_info->port_tx_bufs);
+                if (tx_mgr[i]-> tx_thread_info == NULL){
+                        break;
+                }
                 free(tx_mgr[i]->tx_thread_info);
-                free(tx_mgr[i]->nf_rx_bufs);
+                if (tx_mgr[i] == NULL){
+                        break;
+                }
                 free(tx_mgr[i]);
         }
         for (i = 0; i < rx_lcores; i++) {
+                if (rx_mgr[i]->nf_rx_bufs == NULL){
+                        break;
+                }
                 free(rx_mgr[i]->nf_rx_bufs);
+                if (rx_mgr[i] == NULL){
+                        break;
+                }
                 free(rx_mgr[i]);
         }
+        if (ONVM_NF_SHARE_CORES){
+                for (i = 0; i < ONVM_NUM_WAKEUP_THREADS; i++) {
+                        if (wakeup_ctx[i] == NULL){
+                                break;
+                        }
+                        free(wakeup_ctx[i]);
+                }
+	}
 }
+/*******************************Main function*********************************/
 int
 main(int argc, char *argv[]) {
         unsigned cur_lcore, rx_lcores, tx_lcores, wakeup_lcores;
@@ -379,15 +408,14 @@ main(int argc, char *argv[]) {
         signal(SIGTERM, handle_signal);
 
         struct queue_mgr *tx_mgr[tx_lcores];
+        struct queue_mgr *rx_mgr[rx_lcores];
+        struct wakeup_thread_context *wakeup_ctx[ONVM_NUM_WAKEUP_THREADS];
+
         for (i = 0; i < tx_lcores; i++) {
                 tx_mgr[i] = calloc(1, sizeof(struct queue_mgr));
                 if (tx_mgr[i] == NULL) {
                         RTE_LOG(ERR, APP, "Can't allocate queue_mgr struct\n");
-                        while( i != 0){
-                                free(tx_mgr[i]);
-                                i--;
-                        }
-                        free(tx_mgr[0]);
+                        onvm_main_free(tx_lcores, rx_lcores, tx_mgr, rx_mgr, wakeup_ctx);
                         return -1;
                 }
                 tx_mgr[i]->mgr_type_t = MGR;
@@ -395,53 +423,37 @@ main(int argc, char *argv[]) {
                 tx_mgr[i]->tx_thread_info = calloc(1, sizeof(struct tx_thread_info));
                 if (tx_mgr[i]->tx_thread_info == NULL) {
                         RTE_LOG(ERR, APP, "Can't allocate tx_thread_info struct\n");
-                        while( i != 0){
-                                free(tx_mgr[i]->tx_thread_info);
-                                free(tx_mgr[i]);
-                                i--;
-                        }
-                        free(tx_mgr[0]->tx_thread_info);
-                        free(tx_mgr[0]);
+                        onvm_main_free(tx_lcores,rx_lcores, tx_mgr, rx_mgr, wakeup_ctx);
                         return -1;
                 }
                 tx_mgr[i]->tx_thread_info->port_tx_bufs = calloc(RTE_MAX_ETHPORTS, sizeof(struct packet_buf));
+                if (tx_mgr[i]->tx_thread_info->port_tx_bufs == NULL) {
+                        RTE_LOG(ERR, APP, "Can't allocate packet_buf struct\n");
+                        onvm_main_free(tx_lcores,rx_lcores, tx_mgr, rx_mgr, wakeup_ctx);
+                        return -1;
+                }
                 tx_mgr[i]->nf_rx_bufs = calloc(MAX_NFS, sizeof(struct packet_buf));
+                if (tx_mgr[i]->nf_rx_bufs == NULL) {
+                        RTE_LOG(ERR, APP, "Can't allocate packet_buf struct\n");
+                        onvm_main_free(tx_lcores,rx_lcores, tx_mgr, rx_mgr, wakeup_ctx);
+                        return -1;
+                }
                 tx_mgr[i]->tx_thread_info->first_nf = RTE_MIN(i * nfs_per_tx + 1, (unsigned)MAX_NFS);
                 tx_mgr[i]->tx_thread_info->last_nf = RTE_MIN((i + 1) * nfs_per_tx + 1, (unsigned)MAX_NFS);
                 cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
                 if (rte_eal_remote_launch(tx_thread_main, (void *)tx_mgr[i], cur_lcore) == -EBUSY) {
                         RTE_LOG(ERR, APP, "Core %d is already busy, can't use for nf %d TX\n", cur_lcore,
                                 tx_mgr[i]->tx_thread_info->first_nf);
-                        while( i != 0){
-                                free(tx_mgr[i]->nf_rx_bufs);
-                                free(tx_mgr[i]->tx_thread_info);
-                                free(tx_mgr[i]);
-                                i--;
-                        }
-                        free(tx_mgr[0]->nf_rx_bufs);
-                        free(tx_mgr[0]->tx_thread_info);
-                        free(tx_mgr[0]);
                         return -1;
                 }
         }
 
-        struct queue_mgr *rx_mgr[rx_lcores];
         /* Launch RX thread main function for each RX queue on cores */
         for (i = 0; i < rx_lcores; i++) {
                 rx_mgr[i] = calloc(1, sizeof(struct queue_mgr));
                 if (rx_mgr[i] == NULL) {
                         RTE_LOG(ERR, APP, "Can't allocate queue_mgr struct\n");
-                        while( i != 0){
-                                free(tx_mgr[i]->nf_rx_bufs);
-                                free(tx_mgr[i]->tx_thread_info);
-                                free(tx_mgr[i]);
-                                free(rx_mgr[i]);
-                                i--;
-                        }
-                        free(tx_mgr[0]->nf_rx_bufs);
-                        free(tx_mgr[0]->tx_thread_info);
-                        free(tx_mgr[0]);
-                        free(rx_mgr[0]);
+                        onvm_main_free(tx_lcores,rx_lcores, tx_mgr, rx_mgr, wakeup_ctx);
                         return -1;
                 }
                 rx_mgr[i]->mgr_type_t = MGR;
@@ -450,53 +462,25 @@ main(int argc, char *argv[]) {
                 rx_mgr[i]->nf_rx_bufs = calloc(MAX_NFS, sizeof(struct packet_buf));
                 if (rx_mgr[i] -> nf_rx_bufs == NULL) {
                         RTE_LOG(ERR, APP, "Can't allocate packet_buf struct\n");
-                        while( i != 0){
-                                free(tx_mgr[i]->nf_rx_bufs);
-                                free(tx_mgr[i]->tx_thread_info);
-                                free(rx_mgr[i]->nf_rx_bufs);
-                                free(rx_mgr[i]);
-                                free(tx_mgr[i]);
-                                i--;
-                        }
-                        free(tx_mgr[0]->nf_rx_bufs);
-                        free(tx_mgr[0]->tx_thread_info);
-                        free(rx_mgr[0]->nf_rx_bufs);
-                        free(tx_mgr[0]);
+                        onvm_main_free(tx_lcores,rx_lcores, tx_mgr, rx_mgr, wakeup_ctx);
                         return -1;
                 }
                 cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
                 if (rte_eal_remote_launch(rx_thread_main, (void *)rx_mgr[i], cur_lcore) == -EBUSY) {
                         RTE_LOG(ERR, APP, "Core %d is already busy, can't use for RX queue id %d\n", cur_lcore,
                                 rx_mgr[i]->id);
-                        while( i != 0){
-                                free(tx_mgr[i]->nf_rx_bufs);
-                                free(tx_mgr[i]->tx_thread_info);
-                                free(rx_mgr[i]->nf_rx_bufs);
-                                free(rx_mgr[i]);
-                                free(tx_mgr[i]);
-                                i--;
-                        }
-                        free(tx_mgr[0]->nf_rx_bufs);
-                        free(tx_mgr[0]->tx_thread_info);
-                        free(rx_mgr[0]->nf_rx_bufs);
-                        free(tx_mgr[0]);
+                        onvm_main_free(tx_lcores,rx_lcores, tx_mgr, rx_mgr, wakeup_ctx);
                         return -1;
                 }
         }
 
-        struct wakeup_thread_context *wakeup_ctx[ONVM_NUM_WAKEUP_THREADS];
         if (ONVM_NF_SHARE_CORES) {
                 nfs_per_wakeup_thread = ceil((unsigned)MAX_NFS / wakeup_lcores);
                 for (i = 0; i < ONVM_NUM_WAKEUP_THREADS; i++) {
                         wakeup_ctx[i] = calloc(1, sizeof(struct wakeup_thread_context));
                         if (wakeup_ctx[i] == NULL) {
                                 RTE_LOG(ERR, APP, "Can't allocate wakeup info struct\n");
-                                onvm_main_free(tx_lcores, rx_lcores, tx_mgr, rx_mgr);
-                                while (i != 0){
-                                        free(wakeup_ctx[i]);
-                                }
-                                free(wakeup_ctx[0]);
-                                onvm_main_free(tx_lcores, rx_lcores, tx_mgr, rx_mgr);
+                                onvm_main_free(tx_lcores, rx_lcores, tx_mgr, rx_mgr, wakeup_ctx);
                                 return -1;
                         }
                         wakeup_ctx[i]->first_nf = RTE_MIN(i * nfs_per_wakeup_thread + 1, (unsigned)MAX_NFS);
@@ -505,17 +489,13 @@ main(int argc, char *argv[]) {
                         if (rte_eal_remote_launch(wakeup_thread_main, (void*)wakeup_ctx[i], cur_lcore) == -EBUSY) {
                                 RTE_LOG(ERR, APP, "Core %d is already busy, can't use for nf %d wakeup thread\n",
                                         cur_lcore, wakeup_ctx[i]->first_nf);
-                                while (i != 0){
-                                        free(wakeup_ctx[i]);
-                                }
-                                free(wakeup_ctx[0]);
-                                onvm_main_free(tx_lcores, rx_lcores, tx_mgr, rx_mgr);
+                                onvm_main_free(tx_lcores, rx_lcores, tx_mgr, rx_mgr, wakeup_ctx);
                                 return -1;
                         }
                 }
         }
         /* Master thread handles statistics and NF management */
         master_thread_main();
-        onvm_main_free(tx_lcores,rx_lcores, tx_mgr, rx_mgr);
+        onvm_main_free(tx_lcores,rx_lcores, tx_mgr, rx_mgr, wakeup_ctx);
         return 0;
 }
