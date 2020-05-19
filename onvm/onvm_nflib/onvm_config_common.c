@@ -427,9 +427,9 @@ onvm_config_create_onvm_args(cJSON* onvm_config, int* onvm_argc, char** onvm_arg
                 instance_id_string = (char*)malloc(sizeof(char) * MAX_SERVICE_ID_SIZE);
                 if (instance_id_string == NULL) {
                         printf("Unable to allocate space for onvm_instance_id_string\n");
-			free(service_id_string);
-			free(*onvm_argv);
-			free((*onvm_argv)[0]);
+                        free(service_id_string);
+                        free(*onvm_argv);
+                        free((*onvm_argv)[0]);
                         return -1;
                 }
 
@@ -523,11 +523,11 @@ onvm_config_create_dpdk_args(cJSON* dpdk_config, int* dpdk_argc, char** dpdk_arg
                 (*dpdk_argv)[i] = (char*)malloc(arg_size[i]);
 
                 if ((*dpdk_argv)[i] == NULL) {
-			while( i != 0){
+                        while( i != 0){
                                 free((*dpdk_argv)[i]);
                                 i--;
-			}
-			free((*dpdk_argv)[0]);
+                        }
+                        free((*dpdk_argv)[0]);
                         printf("Unable to allocate space for **dpdk_argv\n");
                         free(*dpdk_argv);
                         free(core_string);
