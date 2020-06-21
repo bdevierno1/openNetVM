@@ -66,33 +66,27 @@ uint32_t hash_entry_number = HASH_ENTRY_NUMBER_DEFAULT;
 static int l3fwd_lpm_on;
 static int l3fwd_em_on;
 
+/* ethernet addresses of ports */
+uint64_t dest_eth_addr[RTE_MAX_ETHPORTS];
+struct ether_addr ports_eth_addr[RTE_MAX_ETHPORTS];
+
+xmm_t val_eth[RTE_MAX_ETHPORTS];
+
 struct l3fwd_lkp_mode {
-    void  (*setup)(int);
-    int   (*check_ptype)(int);
-    rte_rx_callback_fn cb_parse_ptype;
-    int   (*main_loop)(void *);
-    void* (*get_ipv4_lookup_struct)(int);
-    void* (*get_ipv6_lookup_struct)(int);
+    int  (*setup)(void);
+    int  (*check_ptype)(int);
 };
 
 static struct l3fwd_lkp_mode l3fwd_lkp;
 
 static struct l3fwd_lkp_mode l3fwd_em_lkp = {
-    .setup                  = setup_hash,
-    .check_ptype        = em_check_ptype,
-    .cb_parse_ptype     = em_cb_parse_ptype,
-    .main_loop              = em_main_loop,
-    .get_ipv4_lookup_struct = em_get_ipv4_l3fwd_lookup_struct,
-    .get_ipv6_lookup_struct = em_get_ipv6_l3fwd_lookup_struct,
+    .setup                  = setup_lpm,//setup_hash,
+    .check_ptype            = lpm_check_ptype,
 };
 
 static struct l3fwd_lkp_mode l3fwd_lpm_lkp = {
     .setup                  = setup_lpm,
-    .check_ptype        = lpm_check_ptype,
-    .cb_parse_ptype     = lpm_cb_parse_ptype,
-    .main_loop              = lpm_main_loop,
-    .get_ipv4_lookup_struct = lpm_get_ipv4_l3fwd_lookup_struct,
-    .get_ipv6_lookup_struct = lpm_get_ipv6_l3fwd_lookup_struct,
+    .check_ptype            = lpm_check_ptype,
 };
 
 
@@ -156,12 +150,86 @@ parse_app_args(int argc, char *argv[], const char *progname) {
 }
 
 static int
-packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
+lpm_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
                __attribute__((unused)) struct onvm_nf_local_ctx *nf_local_ctx) {
+        //static uint32_t counter = 0;
+        //if (counter++ == print_delay) {
+        //        do_stats_display(pkt);
+        //        counter = 0;
+        //}
+        struct ether_hdr *eth_hdr;
+        struct ipv4_hdr *ipv4_hdr;
+        uint16_t dst_port;
 
+        eth_hdr = rte_pktmbuf_mtod(pkt, struct ether_hdr *);
+
+        if (RTE_ETH_IS_IPV4_HDR(pkt->packet_type)) {
+                /* Handle IPv4 headers.*/
+                ipv4_hdr = rte_pktmbuf_mtod_offset(pkt, struct ipv4_hdr *,
+                                                   sizeof(struct ether_hdr));
+
+#ifdef DO_RFC_1812_CHECKS
+                /* Check to make sure the packet is valid (RFC1812) */
+                if (is_valid_ipv4_pkt(ipv4_hdr, m->pkt_len) < 0) {
+                        rte_pktmbuf_free(m);
+                        return;
+                }
+#endif
+                dst_port = lpm_get_ipv4_dst_port(ipv4_hdr, pkt->port,
+                                                 lpm_tbl);
+
+                if (dst_port >= RTE_MAX_ETHPORTS ||
+                        get_initialized_ports(dst_port) == 0)
+                        dst_port = pkt->port;
+
+#ifdef DO_RFC_1812_CHECKS
+                /* Update time to live and header checksum */
+                --(ipv4_hdr->time_to_live);
+                ++(ipv4_hdr->hdr_checksum);
+#endif
+                /* dst addr */
+                *(uint64_t *)&eth_hdr->d_addr = dest_eth_addr[dst_port];
+
+                /* src addr */
+                ether_addr_copy(&ports_eth_addr[dst_port], &eth_hdr->s_addr);
+
+                meta->destination = dst_port;
+        } else {
+                meta->action = ONVM_NF_ACTION_DROP;
+        }
         return 0;
 }
 
+
+/*
+ * This function displays the ethernet addressof each initialized port.
+ * It saves the ethernet addresses in the struct ether_addr array.
+ */
+static void
+l3fwd_initialize_ports(void) {
+        uint16_t i;
+        for (i = 0; i < ports->num_ports; i++) {
+                rte_eth_macaddr_get(ports->id[i], &ports_eth_addr[ports->id[i]]);
+                printf("Port %u, MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n\n",
+                        ports->id[i],
+                        ports_eth_addr[ports->id[i]].addr_bytes[0],
+                        ports_eth_addr[ports->id[i]].addr_bytes[1],
+                        ports_eth_addr[ports->id[i]].addr_bytes[2],
+                        ports_eth_addr[ports->id[i]].addr_bytes[3],
+                        ports_eth_addr[ports->id[i]].addr_bytes[4],
+                        ports_eth_addr[ports->id[i]].addr_bytes[5]);
+        }
+}
+static void
+l3fwd_initialize_dst(void) {
+        uint16_t i;
+        /* pre-init dst MACs for all ports to 02:00:00:00:00:xx */
+        for (i = 0; i < ports->num_ports; i++) {
+                dest_eth_addr[ports->id[i]] =
+                        ETHER_LOCAL_ADMIN_ADDR + ((uint64_t)ports->id[i] << 40);
+                *(uint64_t *)(val_eth + ports->id[i]) = dest_eth_addr[ports->id[i]];
+        }
+}
 int
 main(int argc, char *argv[]) {
         int arg_offset;
@@ -173,7 +241,7 @@ main(int argc, char *argv[]) {
         onvm_nflib_start_signal_handler(nf_local_ctx, NULL);
 
         nf_function_table = onvm_nflib_init_nf_function_table();
-        nf_function_table->pkt_handler = &packet_handler;
+        nf_function_table->pkt_handler = &lpm_handler;
 
         if ((arg_offset = onvm_nflib_init(argc, argv, NF_TAG, nf_local_ctx, nf_function_table)) < 0) {
                 onvm_nflib_stop(nf_local_ctx);
@@ -208,7 +276,9 @@ main(int argc, char *argv[]) {
         } else {
                 printf("Hash entry number set to: %d\n", hash_entry_number);
         }
-        lpm_check_ptype(0);
+        setup_l3fwd_lookup_tables();
+        l3fwd_initialize_ports();
+        l3fwd_lkp.setup();
         onvm_nflib_run(nf_local_ctx);
 
         onvm_nflib_stop(nf_local_ctx);

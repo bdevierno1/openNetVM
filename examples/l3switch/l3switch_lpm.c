@@ -20,6 +20,7 @@
 #include <rte_udp.h>
 #include <rte_lpm.h>
 #include <rte_lpm6.h>
+#include <rte_malloc.h>
 
 #include "onvm_nflib.h"
 #include "onvm_pkt_helper.h"
@@ -72,37 +73,34 @@ static struct ipv6_l3fwd_lpm_route ipv6_l3fwd_lpm_route_array[] = {
 #define IPV6_L3FWD_LPM_MAX_RULES         1024
 #define IPV6_L3FWD_LPM_NUMBER_TBL8S (1 << 16)
 
-struct rte_lpm *ipv4_l3fwd_lpm_lookup_struct[NB_SOCKETS];
-struct rte_lpm6 *ipv6_l3fwd_lpm_lookup_struct[NB_SOCKETS];
-
 int
-get_initialized_ports(uint8_t if_out) {
-        for (int i = 0; i < ports->num_ports; i++) {
-                if (ports->id[i] == if_out)
-                        return 1;
-        }
-        return 0;
-}
-void
-setup_lpm(const int socketid)
+setup_lpm()
 {
         struct rte_lpm6_config config;
-        struct rte_lpm_config config_ipv4;
-        unsigned i;
-        int ret;
-        char s[64];
+        int i, status, ret;
+        char name[64];
 
         /* create the LPM table */
-        config_ipv4.max_rules = IPV4_L3FWD_LPM_MAX_RULES;
-        config_ipv4.number_tbl8s = IPV4_L3FWD_LPM_NUMBER_TBL8S;
-        config_ipv4.flags = 0;
-        snprintf(s, sizeof(s), "IPV4_L3FWD_LPM_%d", socketid);
-        ipv4_l3fwd_lpm_lookup_struct[socketid] =
-                        rte_lpm_create(s, socketid, &config_ipv4);
-        if (ipv4_l3fwd_lpm_lookup_struct[socketid] == NULL)
-                rte_exit(EXIT_FAILURE,
-                        "Unable to create the l3fwd LPM table on socket %d\n",
-                        socketid);
+        l3switch_req = (struct lpm_request *) rte_malloc(NULL, sizeof(struct lpm_request), 0);
+
+        if (!l3switch_req) return 1;
+
+        snprintf(name, sizeof(name), "fw%d-%"PRIu64, rte_lcore_id(), rte_get_tsc_cycles());
+        l3switch_req->max_num_rules = IPV4_L3FWD_LPM_MAX_RULES;
+        l3switch_req->num_tbl8s = IPV4_L3FWD_LPM_NUMBER_TBL8S;
+        l3switch_req->socket_id = rte_socket_id();
+        snprintf(l3switch_req->name, sizeof(name), "%s", name);
+        status = onvm_nflib_request_lpm(l3switch_req);
+
+        if (status < 0) {
+                rte_exit(EXIT_FAILURE, "Cannot get lpm region for firewall\n");
+        }
+
+        lpm_tbl = rte_lpm_find_existing(name);
+
+        if (lpm_tbl == NULL) {
+                printf("No existing LPM_TBL\n");
+        }
         /* populate the LPM table */
         for (i = 0; i < IPV4_L3FWD_LPM_NUM_ROUTES; i++) {
 
@@ -110,15 +108,14 @@ setup_lpm(const int socketid)
                 if (get_initialized_ports(ipv4_l3fwd_lpm_route_array[i].if_out) == 0)
                         continue;
 
-                ret = rte_lpm_add(ipv4_l3fwd_lpm_lookup_struct[socketid],
+                ret = rte_lpm_add(lpm_tbl,
                         ipv4_l3fwd_lpm_route_array[i].ip,
                         ipv4_l3fwd_lpm_route_array[i].depth,
                         ipv4_l3fwd_lpm_route_array[i].if_out);
 
                 if (ret < 0) {
                         rte_exit(EXIT_FAILURE,
-                                "Unable to add entry %u to the l3fwd LPM table on socket %d\n",
-                                i, socketid);
+                                "Unable to add entry %u to the l3fwd LPM table. \n", i);
                 }
 
                 printf("LPM: Adding route 0x%08x / %d (%d)\n",
@@ -126,8 +123,8 @@ setup_lpm(const int socketid)
                         ipv4_l3fwd_lpm_route_array[i].depth,
                         ipv4_l3fwd_lpm_route_array[i].if_out);
         }
-
-        /* create the LPM6 table */
+        return 0;
+        /* create the LPM6 table
         snprintf(s, sizeof(s), "IPV6_L3FWD_LPM_%d", socketid);
 
         config.max_rules = IPV6_L3FWD_LPM_MAX_RULES;
@@ -140,9 +137,9 @@ setup_lpm(const int socketid)
                         "Unable to create the l3fwd LPM table on socket %d\n",
                         socketid);
 
-        /* populate the LPM table */
+        populate the LPM table
         for (i = 0; i < IPV6_L3FWD_LPM_NUM_ROUTES; i++) {
-                /* skip unused ports */
+                 skip unused ports
                 if (get_initialized_ports(ipv4_l3fwd_lpm_route_array[i].if_out) == 0)
                         continue;
 
@@ -161,7 +158,7 @@ setup_lpm(const int socketid)
                         "IPV6",
                         ipv6_l3fwd_lpm_route_array[i].depth,
                         ipv6_l3fwd_lpm_route_array[i].if_out);
-        }
+        }*/
 }
 
 int
@@ -197,3 +194,42 @@ lpm_check_ptype(int portid)
         return 0;
 
 }
+
+static inline void
+lpm_parse_ptype(struct rte_mbuf *m)
+{
+        struct ether_hdr *eth_hdr;
+        uint32_t packet_type = RTE_PTYPE_UNKNOWN;
+        uint16_t ether_type;
+
+        eth_hdr = rte_pktmbuf_mtod(m, struct ether_hdr *);
+        ether_type = eth_hdr->ether_type;
+        if (ether_type == rte_cpu_to_be_16(ETHER_TYPE_IPv4))
+                packet_type |= RTE_PTYPE_L3_IPV4_EXT_UNKNOWN;
+        else if (ether_type == rte_cpu_to_be_16(ETHER_TYPE_IPv6))
+                packet_type |= RTE_PTYPE_L3_IPV6_EXT_UNKNOWN;
+
+        m->packet_type = packet_type;
+}
+
+uint16_t
+lpm_get_ipv4_dst_port(void *ipv4_hdr, uint16_t portid, void *lookup_struct)
+{
+        uint32_t next_hop;
+        struct rte_lpm *ipv4_l3fwd_lookup_struct =
+                (struct rte_lpm *)lookup_struct;
+
+        return (uint16_t) ((rte_lpm_lookup(ipv4_l3fwd_lookup_struct,
+                rte_be_to_cpu_32(((struct ipv4_hdr *)ipv4_hdr)->dst_addr),
+                &next_hop) == 0) ? next_hop : portid);
+}
+
+int
+get_initialized_ports(uint8_t if_out) {
+        for (int i = 0; i < ports->num_ports; i++) {
+                if (ports->id[i] == if_out)
+                        return 1;
+        }
+        return 0;
+}
+

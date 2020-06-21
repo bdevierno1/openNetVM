@@ -44,44 +44,40 @@
 #define HASH_ENTRY_NUMBER_DEFAULT       4
 #define NB_SOCKETS        8
 
+
+struct lpm_request *l3switch_req;
+struct rte_lpm *lpm_tbl;
+
+
 /* Function pointers for LPM or EM functionality. */
 
-void
-setup_lpm(const int socketid); //done
+int
+setup_lpm(void); //done
 
-void
-setup_hash(const int socketid);
+int
+setup_hash(void);
 
 int
 em_check_ptype(int portid);
 
 int
-lpm_check_ptype(int portid);
+lpm_check_ptype(int portid); //done
 
-uint16_t
-em_cb_parse_ptype(uint16_t port, uint16_t queue, struct rte_mbuf *pkts[],
-                  uint16_t nb_pkts, uint16_t max_pkts, void *user_param);
-
-uint16_t
-lpm_cb_parse_ptype(uint16_t port, uint16_t queue, struct rte_mbuf *pkts[],
-                   uint16_t nb_pkts, uint16_t max_pkts, void *user_param);
 int
 em_main_loop(__attribute__((unused)) void *dummy);
 
 int
 lpm_main_loop(__attribute__((unused)) void *dummy);
 
-/* Return ipv4/ipv6 fwd lookup struct for LPM or EM. */
 void *
 em_get_ipv4_l3fwd_lookup_struct(const int socketid);
 
 void *
 em_get_ipv6_l3fwd_lookup_struct(const int socketid);
 
-void *
-lpm_get_ipv4_l3fwd_lookup_struct(const int socketid);
+uint16_t
+lpm_get_ipv4_dst_port(void *ipv4_hdr, uint16_t portid, void *lookup_struct); //done
 
-void *
-lpm_get_ipv6_l3fwd_lookup_struct(const int socketid);
-
+int
+get_initialized_ports(uint8_t if_out);
 #endif // __L3_SWICTH_H_
