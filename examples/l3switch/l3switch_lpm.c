@@ -35,12 +35,6 @@ struct ipv4_l3fwd_lpm_route {
         uint8_t  if_out;
 };
 
-struct ipv6_l3fwd_lpm_route {
-        uint8_t ip[16];
-        uint8_t  depth;
-        uint8_t  if_out;
-};
-
 static struct ipv4_l3fwd_lpm_route ipv4_l3fwd_lpm_route_array[] = {
         {IPv4(1, 1, 1, 0), 24, 0},
         {IPv4(2, 1, 1, 0), 24, 1},
@@ -52,26 +46,11 @@ static struct ipv4_l3fwd_lpm_route ipv4_l3fwd_lpm_route_array[] = {
         {IPv4(8, 1, 1, 0), 24, 7},
 };
 
-static struct ipv6_l3fwd_lpm_route ipv6_l3fwd_lpm_route_array[] = {
-        {{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, 48, 0},
-        {{2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, 48, 1},
-        {{3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, 48, 2},
-        {{4, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, 48, 3},
-        {{5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, 48, 4},
-        {{6, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, 48, 5},
-        {{7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, 48, 6},
-        {{8, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, 48, 7},
-};
-
 #define IPV4_L3FWD_LPM_NUM_ROUTES \
         (sizeof(ipv4_l3fwd_lpm_route_array) / sizeof(ipv4_l3fwd_lpm_route_array[0]))
-#define IPV6_L3FWD_LPM_NUM_ROUTES \
-        (sizeof(ipv6_l3fwd_lpm_route_array) / sizeof(ipv6_l3fwd_lpm_route_array[0]))
 
 #define IPV4_L3FWD_LPM_MAX_RULES         1024
 #define IPV4_L3FWD_LPM_NUMBER_TBL8S (1 << 8)
-#define IPV6_L3FWD_LPM_MAX_RULES         1024
-#define IPV6_L3FWD_LPM_NUMBER_TBL8S (1 << 16)
 
 int
 setup_lpm()
@@ -93,7 +72,7 @@ setup_lpm()
         status = onvm_nflib_request_lpm(l3switch_req);
 
         if (status < 0) {
-                printf("Cannot get lpm region for firewall\n");
+                printf("Cannot get lpm region for l3switch\n");
                 return -1;
         }
 
@@ -128,65 +107,12 @@ setup_lpm()
         return 0;
 }
 
-int
-lpm_check_ptype()
-{
-        for (int portid = 0; portid < ports -> num_ports; portid++) {
-                int i, ret;
-                int ptype_l3_ipv4 = 0, ptype_l3_ipv6 = 0;
-                uint32_t ptype_mask = RTE_PTYPE_L3_MASK;
-
-                ret = rte_eth_dev_get_supported_ptypes(portid, ptype_mask, NULL, 0);
-                if (ret <= 0)
-                        return 0;
-
-                uint32_t ptypes[ret];
-
-                ret = rte_eth_dev_get_supported_ptypes(portid, ptype_mask, ptypes, ret);
-                for (i = 0; i < ret; ++i) {
-                        if (ptypes[i] & RTE_PTYPE_L3_IPV4)
-                                ptype_l3_ipv4 = 1;
-                        if (ptypes[i] & RTE_PTYPE_L3_IPV6)
-                                ptype_l3_ipv6 = 1;
-                }
-
-                if (ptype_l3_ipv4 == 0)
-                        printf("port %d cannot parse RTE_PTYPE_L3_IPV4\n", portid);
-
-                if (ptype_l3_ipv6 == 0)
-                        printf("port %d cannot parse RTE_PTYPE_L3_IPV6\n", portid);
-
-                if (ptype_l3_ipv4 && ptype_l3_ipv6)
-                        return 1;
-
-                return 0;    
-        }
-}
-
-static inline void
-lpm_parse_ptype(struct rte_mbuf *m)
-{
-        struct ether_hdr *eth_hdr;
-        uint32_t packet_type = RTE_PTYPE_UNKNOWN;
-        uint16_t ether_type;
-
-        eth_hdr = rte_pktmbuf_mtod(m, struct ether_hdr *);
-        ether_type = eth_hdr->ether_type;
-        if (ether_type == rte_cpu_to_be_16(ETHER_TYPE_IPv4))
-                packet_type |= RTE_PTYPE_L3_IPV4_EXT_UNKNOWN;
-        else if (ether_type == rte_cpu_to_be_16(ETHER_TYPE_IPv6))
-                packet_type |= RTE_PTYPE_L3_IPV6_EXT_UNKNOWN;
-
-        m->packet_type = packet_type;
-}
-
 uint16_t
 lpm_get_ipv4_dst_port(void *ipv4_hdr, uint16_t portid, void *lookup_struct)
 {
         uint32_t next_hop;
         struct rte_lpm *ipv4_l3fwd_lookup_struct =
                 (struct rte_lpm *)lookup_struct;
-
         return (uint16_t) ((rte_lpm_lookup(ipv4_l3fwd_lookup_struct,
                 rte_be_to_cpu_32(((struct ipv4_hdr *)ipv4_hdr)->dst_addr),
                 &next_hop) == 0) ? next_hop : portid);

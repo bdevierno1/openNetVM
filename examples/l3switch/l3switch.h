@@ -48,7 +48,6 @@
 struct lpm_request *l3switch_req;
 struct rte_lpm *lpm_tbl;
 
-
 /* Function pointers for LPM or EM functionality. */
 
 int
@@ -56,12 +55,6 @@ setup_lpm(void); //done
 
 int
 setup_hash(void);
-
-int
-em_check_ptype();
-
-int
-lpm_check_ptype(); //done
 
 uint16_t
 lpm_get_ipv4_dst_port(void *ipv4_hdr, uint16_t portid, void *lookup_struct); //done

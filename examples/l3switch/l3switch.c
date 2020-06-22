@@ -86,12 +86,10 @@ static struct l3fwd_lkp_mode l3fwd_lkp;
 
 static struct l3fwd_lkp_mode l3fwd_em_lkp = {
     .setup                  = setup_lpm,
-    .check_ptype            = lpm_check_ptype,
 };
 
 static struct l3fwd_lkp_mode l3fwd_lpm_lkp = {
     .setup                  = setup_lpm,
-    .check_ptype            = lpm_check_ptype,
 };
 
 
@@ -175,14 +173,14 @@ print_stats(void) {
         int i;
 	for (i = 0; i < ports->num_ports; i++) {
 		printf("\nStatistics for port %u ------------------------------"
-			   "\nPackets sent: %20"PRIu64,
+			   "\nPackets forwarded to: %20"PRIu64,
 			   ports->id[i],
 			   port_statistics[ports->id[i]]);
 
 		total_packets += port_statistics[ports->id[i]];
 	}
 	printf("\nAggregate statistics ==============================="
-		   "\nTotal packets sent: %18"PRIu64
+		   "\nTotal packets forwarded: %18"PRIu64
                    "\nPackets dropped: %18"PRIu64,
 		   total_packets,
                    packets_dropped);
@@ -204,7 +202,6 @@ lpm_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
         uint16_t dst_port;
 
         eth_hdr = rte_pktmbuf_mtod(pkt, struct ether_hdr *);
-
         if (RTE_ETH_IS_IPV4_HDR(pkt->packet_type)) {
                 /* Handle IPv4 headers.*/
                 ipv4_hdr = rte_pktmbuf_mtod_offset(pkt, struct ipv4_hdr *,
@@ -213,13 +210,14 @@ lpm_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
 #ifdef DO_RFC_1812_CHECKS
                 /* Check to make sure the packet is valid (RFC1812) */
                 if (is_valid_ipv4_pkt(ipv4_hdr, m->pkt_len) < 0) {
-                        rte_pktmbuf_free(m);
-                        return;
+                        meta->action = ONVM_NF_ACTION_DROP;
+                        packets_dropped++;
+                        return 0;
                 }
 #endif
                 dst_port = lpm_get_ipv4_dst_port(ipv4_hdr, pkt->port,
-                                                 lpm_tbl);
-
+                                                 lpm_tbl);        
+                                                                     
                 if (dst_port >= RTE_MAX_ETHPORTS ||
                         get_initialized_ports(dst_port) == 0)
                         dst_port = pkt->port;
@@ -237,6 +235,7 @@ lpm_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
 
                 meta->destination = dst_port;
                 port_statistics[dst_port]++;
+                meta->action = ONVM_NF_ACTION_OUT;
         } else {
                 meta->action = ONVM_NF_ACTION_DROP;
                 packets_dropped++;
@@ -286,7 +285,6 @@ main(int argc, char *argv[]) {
         onvm_nflib_start_signal_handler(nf_local_ctx, NULL);
 
         nf_function_table = onvm_nflib_init_nf_function_table();
-        nf_function_table->pkt_handler = &lpm_handler;
 
         if ((arg_offset = onvm_nflib_init(argc, argv, NF_TAG, nf_local_ctx, nf_function_table)) < 0) {
                 onvm_nflib_stop(nf_local_ctx);
@@ -306,12 +304,12 @@ main(int argc, char *argv[]) {
                 rte_exit(EXIT_FAILURE, "Invalid command-line arguments\n");
         }
         /*
-         * Hash flags are valid only for
-         * exact macth, reset them to default for
-         * longest-prefix match.
+         * Hash flags are valid only for exact macth,
+         * reset them to default for longest-prefix match.
          */
         if (l3fwd_lpm_on) {
                 hash_entry_number = HASH_ENTRY_NUMBER_DEFAULT;
+                nf_function_table->pkt_handler = &lpm_handler;
                 printf("Longest prefix match enabled. \n");
         } else {
                 printf("Hash table exact match enabled. \n");
@@ -326,11 +324,6 @@ main(int argc, char *argv[]) {
                 onvm_nflib_stop(nf_local_ctx);
                 rte_exit(EXIT_FAILURE, "Unable to setup LPM\n");
         }
-        if (lpm_check_ptype() < 0) {
-                onvm_nflib_stop(nf_local_ctx);
-                rte_exit(EXIT_FAILURE, "Port unable to parse RTE_PTYPE\n");
-        }
-        lpm_check_ptype();
         onvm_nflib_run(nf_local_ctx);
 
         onvm_nflib_stop(nf_local_ctx);
