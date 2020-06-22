@@ -58,22 +58,10 @@ int
 setup_hash(void);
 
 int
-em_check_ptype(int portid);
+em_check_ptype();
 
 int
-lpm_check_ptype(int portid); //done
-
-int
-em_main_loop(__attribute__((unused)) void *dummy);
-
-int
-lpm_main_loop(__attribute__((unused)) void *dummy);
-
-void *
-em_get_ipv4_l3fwd_lookup_struct(const int socketid);
-
-void *
-em_get_ipv6_l3fwd_lookup_struct(const int socketid);
+lpm_check_ptype(); //done
 
 uint16_t
 lpm_get_ipv4_dst_port(void *ipv4_hdr, uint16_t portid, void *lookup_struct); //done

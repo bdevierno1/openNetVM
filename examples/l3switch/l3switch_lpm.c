@@ -93,13 +93,15 @@ setup_lpm()
         status = onvm_nflib_request_lpm(l3switch_req);
 
         if (status < 0) {
-                rte_exit(EXIT_FAILURE, "Cannot get lpm region for firewall\n");
+                printf("Cannot get lpm region for firewall\n");
+                return -1;
         }
 
         lpm_tbl = rte_lpm_find_existing(name);
 
         if (lpm_tbl == NULL) {
                 printf("No existing LPM_TBL\n");
+                return -1;
         }
         /* populate the LPM table */
         for (i = 0; i < IPV4_L3FWD_LPM_NUM_ROUTES; i++) {
@@ -114,8 +116,8 @@ setup_lpm()
                         ipv4_l3fwd_lpm_route_array[i].if_out);
 
                 if (ret < 0) {
-                        rte_exit(EXIT_FAILURE,
-                                "Unable to add entry %u to the l3fwd LPM table. \n", i);
+                        printf("Unable to add entry %u to the l3fwd LPM table. \n", i);
+                        return -1;
                 }
 
                 printf("LPM: Adding route 0x%08x / %d (%d)\n",
@@ -124,75 +126,41 @@ setup_lpm()
                         ipv4_l3fwd_lpm_route_array[i].if_out);
         }
         return 0;
-        /* create the LPM6 table
-        snprintf(s, sizeof(s), "IPV6_L3FWD_LPM_%d", socketid);
-
-        config.max_rules = IPV6_L3FWD_LPM_MAX_RULES;
-        config.number_tbl8s = IPV6_L3FWD_LPM_NUMBER_TBL8S;
-        config.flags = 0;
-        ipv6_l3fwd_lpm_lookup_struct[socketid] = rte_lpm6_create(s, socketid,
-                                &config);
-        if (ipv6_l3fwd_lpm_lookup_struct[socketid] == NULL)
-                rte_exit(EXIT_FAILURE,
-                        "Unable to create the l3fwd LPM table on socket %d\n",
-                        socketid);
-
-        populate the LPM table
-        for (i = 0; i < IPV6_L3FWD_LPM_NUM_ROUTES; i++) {
-                 skip unused ports
-                if (get_initialized_ports(ipv4_l3fwd_lpm_route_array[i].if_out) == 0)
-                        continue;
-
-                ret = rte_lpm6_add(ipv6_l3fwd_lpm_lookup_struct[socketid],
-                        ipv6_l3fwd_lpm_route_array[i].ip,
-                        ipv6_l3fwd_lpm_route_array[i].depth,
-                        ipv6_l3fwd_lpm_route_array[i].if_out);
-
-                if (ret < 0) {
-                        rte_exit(EXIT_FAILURE,
-                                "Unable to add entry %u to the l3fwd LPM table on socket %d\n",
-                                i, socketid);
-                }
-
-                printf("LPM: Adding route %s / %d (%d)\n",
-                        "IPV6",
-                        ipv6_l3fwd_lpm_route_array[i].depth,
-                        ipv6_l3fwd_lpm_route_array[i].if_out);
-        }*/
 }
 
 int
-lpm_check_ptype(int portid)
+lpm_check_ptype()
 {
-        int i, ret;
-        int ptype_l3_ipv4 = 0, ptype_l3_ipv6 = 0;
-        uint32_t ptype_mask = RTE_PTYPE_L3_MASK;
+        for (int portid = 0; portid < ports -> num_ports; portid++) {
+                int i, ret;
+                int ptype_l3_ipv4 = 0, ptype_l3_ipv6 = 0;
+                uint32_t ptype_mask = RTE_PTYPE_L3_MASK;
 
-        ret = rte_eth_dev_get_supported_ptypes(portid, ptype_mask, NULL, 0);
-        if (ret <= 0)
-                return 0;
+                ret = rte_eth_dev_get_supported_ptypes(portid, ptype_mask, NULL, 0);
+                if (ret <= 0)
+                        return 0;
 
-        uint32_t ptypes[ret];
+                uint32_t ptypes[ret];
 
-        ret = rte_eth_dev_get_supported_ptypes(portid, ptype_mask, ptypes, ret);
-        for (i = 0; i < ret; ++i) {
-                if (ptypes[i] & RTE_PTYPE_L3_IPV4)
-                        ptype_l3_ipv4 = 1;
-                if (ptypes[i] & RTE_PTYPE_L3_IPV6)
-                        ptype_l3_ipv6 = 1;
+                ret = rte_eth_dev_get_supported_ptypes(portid, ptype_mask, ptypes, ret);
+                for (i = 0; i < ret; ++i) {
+                        if (ptypes[i] & RTE_PTYPE_L3_IPV4)
+                                ptype_l3_ipv4 = 1;
+                        if (ptypes[i] & RTE_PTYPE_L3_IPV6)
+                                ptype_l3_ipv6 = 1;
+                }
+
+                if (ptype_l3_ipv4 == 0)
+                        printf("port %d cannot parse RTE_PTYPE_L3_IPV4\n", portid);
+
+                if (ptype_l3_ipv6 == 0)
+                        printf("port %d cannot parse RTE_PTYPE_L3_IPV6\n", portid);
+
+                if (ptype_l3_ipv4 && ptype_l3_ipv6)
+                        return 1;
+
+                return 0;    
         }
-
-        if (ptype_l3_ipv4 == 0)
-                printf("port %d cannot parse RTE_PTYPE_L3_IPV4\n", portid);
-
-        if (ptype_l3_ipv6 == 0)
-                printf("port %d cannot parse RTE_PTYPE_L3_IPV6\n", portid);
-
-        if (ptype_l3_ipv4 && ptype_l3_ipv6)
-                return 1;
-
-        return 0;
-
 }
 
 static inline void
