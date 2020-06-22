@@ -127,7 +127,7 @@ static int
 parse_app_args(int argc, char *argv[], const char *progname) {
         int c;
 
-        while ((c = getopt(argc, argv, "h:e")) != -1) {
+        while ((c = getopt(argc, argv, "h:p:e")) != -1) {
                 switch (c) {
                         case 'h':
                                 hash_entry_number = strtoul(optarg, NULL, 10);
