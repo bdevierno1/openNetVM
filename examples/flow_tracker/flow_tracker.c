@@ -60,8 +60,9 @@
 #include "onvm_pkt_helper.h"
 
 #define NF_TAG "flow_tracker"
-#define TBL_SIZE 100
+#define TBL_SIZE 10000
 #define EXPIRE_TIME 5
+#define NUM_REPLICAS 2
 
 /*Struct that holds all NF state information */
 struct state_info {
@@ -78,6 +79,7 @@ struct flow_stats {
         int pkt_count;
         uint64_t last_pkt_cycles;
         int is_active;
+        uint16_t target_nf;
 };
 
 struct state_info *state_info;
@@ -218,31 +220,33 @@ do_stats_display(struct state_info *state_info) {
  * Adds an entry to the flow table. It first checks if the table is full, and
  * if so, it calls clear_entries() to free up space.
  */
-static int
+static struct flow_stats*
 table_add_entry(struct onvm_ft_ipv4_5tuple *key, struct state_info *state_info) {
         struct flow_stats *data = NULL;
 
         if (unlikely(key == NULL || state_info == NULL)) {
-                return -1;
+                return NULL;
         }
 
         if (TBL_SIZE - state_info->num_stored == 0) {
                 int ret = clear_entries(state_info);
                 if (ret < 0) {
-                        return -1;
+                        return NULL;
                 }
         }
 
         int tbl_index = onvm_ft_add_key(state_info->ft, key, (char **)&data);
         if (tbl_index < 0) {
-                return -1;
+                return NULL;
         }
 
         data->pkt_count = 0;
         data->last_pkt_cycles = state_info->elapsed_cycles;
         data->is_active = 1;
         state_info->num_stored += 1;
-        return 0;
+        data->target_nf = state_info->num_stored % NUM_REPLICAS;       // Round Robin flow assignment 
+        // data->target_nf = packet->RSS % NUM_REPLICAS;                  // Random flow assignment
+        return data;
 }
 
 /*
@@ -250,29 +254,28 @@ table_add_entry(struct onvm_ft_ipv4_5tuple *key, struct state_info *state_info) 
  * If it finds one, it updates the metadata associated with the key entry,
  * and if it doesn't, it calls table_add_entry() to add it to the table.
  */
-static int
-table_lookup_entry(struct rte_mbuf *pkt, struct state_info *state_info) {
+static struct flow_stats* table_lookup_entry(struct rte_mbuf *pkt, struct state_info *state_info) {
         struct flow_stats *data = NULL;
         struct onvm_ft_ipv4_5tuple key;
 
         if (unlikely(pkt == NULL || state_info == NULL)) {
-                return -1;
+                return NULL;
         }
 
         int ret = onvm_ft_fill_key_symmetric(&key, pkt);
         if (ret < 0)
-                return -1;
+                return NULL;
 
         int tbl_index = onvm_ft_lookup_key(state_info->ft, &key, (char **)&data);
         if (tbl_index == -ENOENT) {
                 return table_add_entry(&key, state_info);
         } else if (tbl_index < 0) {
                 printf("Some other error occurred with the packet hashing\n");
-                return -1;
+                return NULL;
         } else {
                 data->pkt_count += 1;
                 data->last_pkt_cycles = state_info->elapsed_cycles;
-                return 0;
+                return data;
         }
 }
 
@@ -297,11 +300,14 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
                 return 0;
         }
 
-        if (table_lookup_entry(pkt, state_info) < 0) {
+        struct flow_stats * flow_entry = table_lookup_entry(pkt, state_info);
+        if (flow_entry == NULL) {
                 printf("Packet could not be identified or processed\n");
+                meta->action = ONVM_NF_ACTION_DROP;
+                return 0;
         }
 
-        meta->destination = state_info->destination;
+        meta->destination = flow_entry->target_nf;
         meta->action = ONVM_NF_ACTION_TONF;
 
         return 0;
