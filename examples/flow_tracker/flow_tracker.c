@@ -62,7 +62,7 @@
 #define NF_TAG "flow_tracker"
 #define TBL_SIZE 10000
 #define EXPIRE_TIME 5
-#define NUM_REPLICAS 2
+#define NUM_REPLICAS 8
 
 /*Struct that holds all NF state information */
 struct state_info {
@@ -83,6 +83,15 @@ struct flow_stats {
 };
 
 struct state_info *state_info;
+static uint64_t total_packets = 0;
+static uint64_t counta = 0;
+static uint64_t countb = 0;
+static uint64_t countc = 0;
+static uint64_t countd = 0;
+
+static uint64_t weights[3] = {64,64,64};
+
+uint32_t random_number;
 
 /*
  * Prints application arguments
@@ -197,9 +206,7 @@ do_stats_display(struct state_info *state_info) {
         uint32_t next = 0;
         int32_t index;
 
-        printf("------------------------------\n");
-        printf("     Flow Table Contents\n");
-        printf("------------------------------\n");
+        printf("\nFlow table statistics ====================================");
         printf("Current capacity: %d / %d\n\n", state_info->num_stored, TBL_SIZE);
         while ((index = onvm_ft_iterate(state_info->ft, (const void **)&key, (void **)&data, &next)) > -1) {
                 update_status(state_info->elapsed_cycles, data);
@@ -209,10 +216,17 @@ do_stats_display(struct state_info *state_info) {
                 } else {
                         printf("Expired\n");
                 }
-
+                printf("Target: %d.\n", data->target_nf);
                 printf("Key information:\n");
                 _onvm_ft_print_key(key);
                 printf("Packet count: %d\n\n", data->pkt_count);
+        }
+        for (index = 0; index < 4; index++){
+                printf("count info\n");
+                printf("%ld\n" , counta);
+                printf("%ld\n" , countb);
+                printf("%ld\n" , countc);
+                printf("%ld\n" , countd); 
         }
 }
 
@@ -235,16 +249,33 @@ table_add_entry(struct onvm_ft_ipv4_5tuple *key, struct state_info *state_info) 
                 }
         }
 
+        random_number =  (rand() % 256);
         int tbl_index = onvm_ft_add_key(state_info->ft, key, (char **)&data);
         if (tbl_index < 0) {
                 return NULL;
+        }
+
+        if (random_number < weights[0]) {
+                data->target_nf = 2;
+                counta++;
+        }
+        if (random_number >= weights[0] && random_number < weights[1]) {
+                data->target_nf = 3;
+                countb++;
+        }
+        if (random_number >= weights[1] && random_number < weights[2] ) {
+                data->target_nf = 4;
+                countc++;
+        }
+        if (random_number >= weights[2]) {
+                data->target_nf = 5;
+                countd++;
         }
 
         data->pkt_count = 0;
         data->last_pkt_cycles = state_info->elapsed_cycles;
         data->is_active = 1;
         state_info->num_stored += 1;
-        data->target_nf = state_info->num_stored % NUM_REPLICAS;       // Round Robin flow assignment 
         // data->target_nf = packet->RSS % NUM_REPLICAS;                  // Random flow assignment
         return data;
 }
@@ -303,6 +334,24 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
         struct flow_stats * flow_entry = table_lookup_entry(pkt, state_info);
         if (flow_entry == NULL) {
                 printf("Packet could not be identified or processed\n");
+                meta->action = ONVM_NF_ACTION_DROP;
+                return 0;
+        }
+                meta->action = ONVM_NF_ACTION_DROP;
+                return 0;
+        }
+                meta->action = ONVM_NF_ACTION_DROP;
+                return 0;
+        }
+                meta->action = ONVM_NF_ACTION_DROP;
+                return 0;
+        }
+                meta->action = ONVM_NF_ACTION_DROP;
+                return 0;
+        }
+                meta->action = ONVM_NF_ACTION_DROP;
+                return 0;
+        }
                 meta->action = ONVM_NF_ACTION_DROP;
                 return 0;
         }
