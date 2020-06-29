@@ -30,7 +30,7 @@
 extern struct port_info *ports;
 
 struct ipv4_l3fwd_lpm_route {
-        uint32_t ip;
+        uint32_t ip; //destination address
         uint8_t  depth;
         uint8_t  if_out;
 };
@@ -53,32 +53,31 @@ static struct ipv4_l3fwd_lpm_route ipv4_l3fwd_lpm_route_array[] = {
 #define IPV4_L3FWD_LPM_NUMBER_TBL8S (1 << 8)
 
 int
-setup_lpm()
-{
+setup_lpm(struct state_info *stats) {
         struct rte_lpm6_config config;
         int i, status, ret;
         char name[64];
 
         /* create the LPM table */
-        l3switch_req = (struct lpm_request *) rte_malloc(NULL, sizeof(struct lpm_request), 0);
+        stats->l3switch_req = (struct lpm_request *)rte_malloc(NULL, sizeof(struct lpm_request), 0);
 
-        if (!l3switch_req) return 1;
+        if (!stats->l3switch_req) return -1;
 
         snprintf(name, sizeof(name), "fw%d-%"PRIu64, rte_lcore_id(), rte_get_tsc_cycles());
-        l3switch_req->max_num_rules = IPV4_L3FWD_LPM_MAX_RULES;
-        l3switch_req->num_tbl8s = IPV4_L3FWD_LPM_NUMBER_TBL8S;
-        l3switch_req->socket_id = rte_socket_id();
-        snprintf(l3switch_req->name, sizeof(name), "%s", name);
-        status = onvm_nflib_request_lpm(l3switch_req);
+        stats->l3switch_req->max_num_rules = IPV4_L3FWD_LPM_MAX_RULES;
+        stats->l3switch_req->num_tbl8s = IPV4_L3FWD_LPM_NUMBER_TBL8S;
+        stats->l3switch_req->socket_id = rte_socket_id();
+        snprintf(stats->l3switch_req->name, sizeof(name), "%s", name);
+        status = onvm_nflib_request_lpm(stats->l3switch_req);
 
         if (status < 0) {
                 printf("Cannot get lpm region for l3switch\n");
                 return -1;
         }
 
-        lpm_tbl = rte_lpm_find_existing(name);
+        stats->lpm_tbl = rte_lpm_find_existing(name);
 
-        if (lpm_tbl == NULL) {
+        if (stats->lpm_tbl == NULL) {
                 printf("No existing LPM_TBL\n");
                 return -1;
         }
@@ -89,7 +88,7 @@ setup_lpm()
                 if (get_initialized_ports(ipv4_l3fwd_lpm_route_array[i].if_out) == 0)
                         continue;
 
-                ret = rte_lpm_add(lpm_tbl,
+                ret = rte_lpm_add(stats->lpm_tbl,
                         ipv4_l3fwd_lpm_route_array[i].ip,
                         ipv4_l3fwd_lpm_route_array[i].depth,
                         ipv4_l3fwd_lpm_route_array[i].if_out);
@@ -99,17 +98,18 @@ setup_lpm()
                         return -1;
                 }
 
-                printf("LPM: Adding route 0x%08x / %d (%d)\n",
+                printf("\nLPM: Adding route 0x%08x / %d (%d)\n",
                         (unsigned)ipv4_l3fwd_lpm_route_array[i].ip,
                         ipv4_l3fwd_lpm_route_array[i].depth,
                         ipv4_l3fwd_lpm_route_array[i].if_out);
+		printf("IP: %" PRIu8 ".%" PRIu8 ".%" PRIu8 ".%" PRIu8, ipv4_l3fwd_lpm_route_array[i].ip >>24 & 0xFF, (ipv4_l3fwd_lpm_route_array[i].ip >> 16) & 0xFF,
+                (ipv4_l3fwd_lpm_route_array[i].ip >> 8) & 0xFF, (ipv4_l3fwd_lpm_route_array[i].ip) & 0xFF);
         }
         return 0;
 }
 
 uint16_t
-lpm_get_ipv4_dst_port(void *ipv4_hdr, uint16_t portid, void *lookup_struct)
-{
+lpm_get_ipv4_dst_port(void *ipv4_hdr, uint16_t portid, void *lookup_struct) {
         uint32_t next_hop;
         struct rte_lpm *ipv4_l3fwd_lookup_struct =
                 (struct rte_lpm *)lookup_struct;
@@ -118,6 +118,10 @@ lpm_get_ipv4_dst_port(void *ipv4_hdr, uint16_t portid, void *lookup_struct)
                 &next_hop) == 0) ? next_hop : portid);
 }
 
+/* 
+ * This helper function checks if the destination port
+ * is a valid port number that is currently binded to dpdk.
+ */
 int
 get_initialized_ports(uint8_t if_out) {
         for (int i = 0; i < ports->num_ports; i++) {
@@ -126,4 +130,3 @@ get_initialized_ports(uint8_t if_out) {
         }
         return 0;
 }
-

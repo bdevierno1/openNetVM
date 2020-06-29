@@ -47,7 +47,7 @@ include $(RTE_SDK)/mk/rte.vars.mk
 APP = l3switch
 
 # all source are stored in SRCS-y
-SRCS-y := l3switch.c l3switch_lpm.c
+SRCS-y := l3switch.c l3switch_lpm.c l3switch_em.c
 
 # OpenNetVM path
 ONVM= $(SRCDIR)/../../onvm

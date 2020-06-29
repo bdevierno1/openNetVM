@@ -38,27 +38,54 @@
  * l3switch.h - This application performs L3 forwarding.
  ********************************************************************/
 
+#include "onvm_flow_table.h"
+
 #ifndef __L3_SWITCH_H_
 #define __L3_SWICTH_H_
+
+/* Hash parameters. */
+#ifdef RTE_ARCH_64
+/* default to 4 million hash entries (approx) */
+#define L3FWD_HASH_ENTRIES              (1024*1024*4)
+#else
+/* 32-bit has less address-space for hugepage memory, limit to 1M entries */
+#define L3FWD_HASH_ENTRIES              (1024*1024*1)
+#endif
 
 #define HASH_ENTRY_NUMBER_DEFAULT       4
 #define NB_SOCKETS        8
 
-
-struct lpm_request *l3switch_req;
-struct rte_lpm *lpm_tbl;
+/*Struct that holds all NF state information */
+struct state_info {
+        struct onvm_ft *em_tbl;
+        struct rte_lpm *lpm_tbl;
+        struct lpm_request *l3switch_req;
+        struct ether_addr ports_eth_addr[RTE_MAX_ETHPORTS];
+        uint64_t port_statistics[RTE_MAX_ETHPORTS];
+        xmm_t val_eth[RTE_MAX_ETHPORTS];
+        uint64_t dest_eth_addr[RTE_MAX_ETHPORTS];
+        uint64_t packets_dropped;
+        uint32_t print_delay;
+        uint32_t hash_entry_number;
+        int8_t l3fwd_lpm_on;
+        int8_t l3fwd_em_on;
+};
 
 /* Function pointers for LPM or EM functionality. */
 
 int
-setup_lpm(void); //done
+setup_lpm(struct state_info *stats);
 
 int
-setup_hash(void);
+setup_hash(struct state_info *stats);
 
 uint16_t
-lpm_get_ipv4_dst_port(void *ipv4_hdr, uint16_t portid, void *lookup_struct); //done
+lpm_get_ipv4_dst_port(void *ipv4_hdr, uint16_t portid, void *lookup_struct);
+
+uint16_t
+em_get_ipv4_dst_port(struct rte_mbuf *pkt, struct state_info *stats);
 
 int
 get_initialized_ports(uint8_t if_out);
+
 #endif // __L3_SWICTH_H_
