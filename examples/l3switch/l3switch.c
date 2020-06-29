@@ -186,7 +186,6 @@ handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
                 } else {
                         dst_port = em_get_ipv4_dst_port(pkt, stats);
                 }
-                //printf("Port %d\n", dst_port);
                 if (dst_port >= RTE_MAX_ETHPORTS ||
                         get_initialized_ports(dst_port) == 0)
                         dst_port = pkt->port;

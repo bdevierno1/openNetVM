@@ -30,7 +30,7 @@
 extern struct port_info *ports;
 
 struct ipv4_l3fwd_lpm_route {
-        uint32_t ip; //destination address
+        uint32_t ip; // destination address
         uint8_t  depth;
         uint8_t  if_out;
 };
@@ -102,8 +102,9 @@ setup_lpm(struct state_info *stats) {
                         (unsigned)ipv4_l3fwd_lpm_route_array[i].ip,
                         ipv4_l3fwd_lpm_route_array[i].depth,
                         ipv4_l3fwd_lpm_route_array[i].if_out);
-		printf("IP: %" PRIu8 ".%" PRIu8 ".%" PRIu8 ".%" PRIu8, ipv4_l3fwd_lpm_route_array[i].ip >>24 & 0xFF, (ipv4_l3fwd_lpm_route_array[i].ip >> 16) & 0xFF,
-                (ipv4_l3fwd_lpm_route_array[i].ip >> 8) & 0xFF, (ipv4_l3fwd_lpm_route_array[i].ip) & 0xFF);
+                printf("IP: %" PRIu8 ".%" PRIu8 ".%" PRIu8 ".%" PRIu8,
+                        ipv4_l3fwd_lpm_route_array[i].ip >>24 & 0xFF, (ipv4_l3fwd_lpm_route_array[i].ip >> 16) & 0xFF,
+                        (ipv4_l3fwd_lpm_route_array[i].ip >> 8) & 0xFF, (ipv4_l3fwd_lpm_route_array[i].ip) & 0xFF);
         }
         return 0;
 }
@@ -118,7 +119,7 @@ lpm_get_ipv4_dst_port(void *ipv4_hdr, uint16_t portid, void *lookup_struct) {
                 &next_hop) == 0) ? next_hop : portid);
 }
 
-/* 
+/*
  * This helper function checks if the destination port
  * is a valid port number that is currently binded to dpdk.
  */
