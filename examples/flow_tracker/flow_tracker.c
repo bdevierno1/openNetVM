@@ -83,16 +83,16 @@ struct flow_stats {
 };
 
 struct state_info *state_info;
-static uint64_t total_packets = 0;
-static uint64_t counta = 0;
+//static uint64_t total_packets = 0;
+static uint64_t counta = 0;     // number of flows sent to node A
 static uint64_t countb = 0;
 static uint64_t countc = 0;
 static uint64_t countd = 0;
+static uint64_t weights[4] = {64,64,64,64};
+static uint64_t packets_per_nf[4] = {0, 0, 0, 0};
 
-static uint64_t weights[3] = {64,64,64};
-
-uint32_t random_number;
-
+static int update_weights(void);
+static uint64_t total_packets = 0;
 /*
  * Prints application arguments
  */
@@ -183,7 +183,7 @@ clear_entries(struct state_info *state_info) {
                         return -1;
                 }
 
-                if (!data->is_active) {
+                if (!data->is_active || total_packets == 1000000) {
                         ret = onvm_ft_remove_key(state_info->ft, key);
                         state_info->num_stored--;
                         if (ret < 0) {
@@ -221,13 +221,13 @@ do_stats_display(struct state_info *state_info) {
                 _onvm_ft_print_key(key);
                 printf("Packet count: %d\n\n", data->pkt_count);
         }
-        for (index = 0; index < 4; index++){
-                printf("count info\n");
-                printf("%ld\n" , counta);
-                printf("%ld\n" , countb);
-                printf("%ld\n" , countc);
-                printf("%ld\n" , countd); 
-        }
+        // for (index = 0; index < 4; index++){
+        //         printf("count info\n");
+        //         printf("%ld\n" , counta);
+        //         printf("%ld\n" , countb);
+        //         printf("%ld\n" , countc);
+        //         printf("%ld\n" , countd); 
+        // }
 }
 
 /*
@@ -249,25 +249,24 @@ table_add_entry(struct onvm_ft_ipv4_5tuple *key, struct state_info *state_info) 
                 }
         }
 
-        random_number =  (rand() % 256);
+        uint64_t random_number =  (rand() % 256);
         int tbl_index = onvm_ft_add_key(state_info->ft, key, (char **)&data);
         if (tbl_index < 0) {
                 return NULL;
         }
-
-        if (random_number < weights[0]) {
+        if (random_number < weights[0]) { // 0... weights[0]
                 data->target_nf = 2;
                 counta++;
         }
-        if (random_number >= weights[0] && random_number < weights[1]) {
+        if (random_number >= weights[0] && random_number < (weights[1] + weights[0])) {   // weights[0] .... (weights[0]+weights[1])
                 data->target_nf = 3;
                 countb++;
         }
-        if (random_number >= weights[1] && random_number < weights[2] ) {
+        if (random_number >= weights[1] + weights[0] && random_number < weights[2] + weights[0] + weights[1] ) {
                 data->target_nf = 4;
                 countc++;
         }
-        if (random_number >= weights[2]) {
+        if (random_number >= weights[0] + weights[1] + weights[2]) {
                 data->target_nf = 5;
                 countd++;
         }
@@ -296,7 +295,6 @@ static struct flow_stats* table_lookup_entry(struct rte_mbuf *pkt, struct state_
         int ret = onvm_ft_fill_key_symmetric(&key, pkt);
         if (ret < 0)
                 return NULL;
-
         int tbl_index = onvm_ft_lookup_key(state_info->ft, &key, (char **)&data);
         if (tbl_index == -ENOENT) {
                 return table_add_entry(&key, state_info);
@@ -311,11 +309,33 @@ static struct flow_stats* table_lookup_entry(struct rte_mbuf *pkt, struct state_
 }
 
 static int
+update_weights(void){
+        // Goal: update weights so that all NFs will get a more even distribution of flows
+        //   - if one NF is getting a lot of packets, it should get a smaller weight, and vice versa
+        //   - need to know how many packets are being sent to each NF
+        //      - We could walk through the flow table and add up each flow based on which NF is the target
+
+        uint64_t total_packets = packets_per_nf[0] + packets_per_nf[1] + packets_per_nf[2] + packets_per_nf[3];
+        if (total_packets == 0) {
+                return 0;
+        }
+        for (int i = 0; i < 4; i++) {
+                weights[i] = (256 * (total_packets - packets_per_nf[i])) / total_packets;
+                printf("Weight %d: %ld\n", i, weights[i]);
+                packets_per_nf[i] = 0;
+        }
+
+        return 0;
+
+}
+
+static int
 callback_handler(__attribute__((unused)) struct onvm_nf_local_ctx *nf_local_ctx) {
         state_info->elapsed_cycles = rte_get_tsc_cycles();
 
         if ((state_info->elapsed_cycles - state_info->last_cycles) / rte_get_timer_hz() > state_info->print_delay) {
                 state_info->last_cycles = state_info->elapsed_cycles;
+                update_weights();
                 do_stats_display(state_info);
         }
 
@@ -337,27 +357,16 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
                 meta->action = ONVM_NF_ACTION_DROP;
                 return 0;
         }
-                meta->action = ONVM_NF_ACTION_DROP;
-                return 0;
-        }
-                meta->action = ONVM_NF_ACTION_DROP;
-                return 0;
-        }
-                meta->action = ONVM_NF_ACTION_DROP;
-                return 0;
-        }
-                meta->action = ONVM_NF_ACTION_DROP;
-                return 0;
-        }
-                meta->action = ONVM_NF_ACTION_DROP;
-                return 0;
-        }
-                meta->action = ONVM_NF_ACTION_DROP;
-                return 0;
-        }
 
         meta->destination = flow_entry->target_nf;
         meta->action = ONVM_NF_ACTION_TONF;
+
+        packets_per_nf[flow_entry->target_nf - 2]++; // adjust by 2 because targetNF is a service ID (2...5)
+        total_packets++;
+        if (total_packets > 1000000) {
+                clear_entries(state_info);
+                total_packets = 0;
+        }
 
         return 0;
 }
