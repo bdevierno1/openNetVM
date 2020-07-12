@@ -1,4 +1,4 @@
-/*********************************************************************
+ /**********************************************************************
  *                     openNetVM
  *              https://sdnfv.github.io
  *
@@ -71,6 +71,9 @@ static uint32_t print_delay = 1000000;
 
 static uint32_t destination;
 
+char *rule_file = NULL;
+
+struct onvm_fw_rule **rules;
 /*
  * Print a usage message
  */
@@ -89,15 +92,19 @@ usage(const char *progname) {
  */
 static int
 parse_app_args(int argc, char *argv[], const char *progname) {
-        int c;
+        int c, rules_init = 0;
 
-        while ((c = getopt(argc, argv, "d:p:")) != -1) {
+        while ((c = getopt(argc, argv, "d:p:f:")) != -1) {
                 switch (c) {
                         case 'd':
                                 destination = strtoul(optarg, NULL, 10);
                                 break;
                         case 'p':
                                 print_delay = strtoul(optarg, NULL, 10);
+                                break;
+                        case 'f':
+                                rule_file = strdup(optarg);
+                                rules_init = 1;
                                 break;
                         case '?':
                                 usage(progname);
@@ -115,9 +122,32 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                                 return -1;
                 }
         }
+        if (rules_init) {
+                RTE_LOG(INFO, APP, "Parsing JSON. Setting service chains for specific flows.\n");
+        }
         return optind;
 }
 
+static struct onvm_fw_rule
+**setup_rules(int *total_rules, char *rules_file) {
+        int num_rules;
+        cJSON *rules_json = onvm_config_parse_file(rules_file);
+        //cJSON *rules_ip = NULL;
+        //cJSON *depth = NULL;
+
+        if (rules_json != NULL) {
+                rte_exit(EXIT_FAILURE, "%s file could not be parsed/not found. Assure rules file"
+                                       " the directory to the rules file is being specified.\n", rules_file);
+        }
+
+        num_rules = onvm_config_get_item_count(rules_json);
+        *total_rules = num_rules;
+
+        rules = (struct onvm_fw_rule **) malloc(num_rules * sizeof(struct onvm_fw_rule *));
+        rules_json = rules_json->child;
+
+        return rules;
+}
 /*
  * This function displays stats. It uses ANSI terminal codes to clear
  * screen when called. It is called from a single non-master
@@ -176,14 +206,14 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta,
                 memset(flow_entry, 0, sizeof(struct onvm_flow_entry));
                 flow_entry->sc = onvm_sc_create();
                 onvm_sc_append_entry(flow_entry->sc, ONVM_NF_ACTION_TONF, destination);
-                // onvm_sc_print(flow_entry->sc);
+                onvm_sc_print(flow_entry->sc);
         }
         return 0;
 }
 
 int
 main(int argc, char *argv[]) {
-        int arg_offset;
+        int arg_offset, num_rules;
         struct onvm_nf_local_ctx *nf_local_ctx;
         struct onvm_nf_function_table *nf_function_table;
         const char *progname = argv[0];
@@ -210,6 +240,8 @@ main(int argc, char *argv[]) {
 
         if (parse_app_args(argc, argv, progname) < 0)
                 rte_exit(EXIT_FAILURE, "Invalid command-line arguments\n");
+
+        rules = setup_rules(&num_rules, rule_file);
 
         /* Map the sdn_ft table */
         onvm_flow_dir_nf_init();
