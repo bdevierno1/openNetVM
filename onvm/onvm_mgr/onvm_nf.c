@@ -497,12 +497,22 @@ onvm_nf_init_rings(struct onvm_nf *nf) {
                 rte_ring_create(msg_q_name, msgringsize, socket_id,
                                 RING_F_SC_DEQ); /* multi prod, single cons */
 
-        if (nf->rx_q == NULL)
+        if (nf->rx_q == NULL) {
+                 nf->rx_q = rte_ring_lookup(rq_name);
+        }
+        if (nf->rx_q == NULL) {
                 rte_exit(EXIT_FAILURE, "Cannot create rx ring queue for NF %u\n", instance_id);
-
-        if (nf->tx_q == NULL)
+        }
+        if (nf->tx_q == NULL) {
+                nf->tx_q = rte_ring_lookup(tq_name);
+        }
+        if (nf->tx_q == NULL) {
                 rte_exit(EXIT_FAILURE, "Cannot create tx ring queue for NF %u\n", instance_id);
-
-        if (nf->msg_q == NULL)
+        }
+        if (nf->msg_q == NULL) {
+                nf->msg_q = rte_ring_lookup(msg_q_name);
+        }
+        if (nf->msg_q == NULL) {
                 rte_exit(EXIT_FAILURE, "Cannot create msg queue for NF %u\n", instance_id);
+        }
 }
