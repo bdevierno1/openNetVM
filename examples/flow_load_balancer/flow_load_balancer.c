@@ -63,26 +63,23 @@
 #define TBL_SIZE 10000
 #define EXPIRE_TIME 5
 #define NUM_REPLICAS 4
-#define SERVICE_ID \
-        2  // Service ID of the first NF. If the number of replicas to be distributed is four, corresponding service ID
-           // will be 2,3,4,5
+/*Service ID of the first NF. If the number of replicas to be distributed is four, corresponding service ID will be 2,3,4,5. */
+#define SERVICE_ID 2
+/*Number of packets to be received before weights are adjusted and previous entrries in the flow table to be removed. */
 #define INTERVAL 1000000
+/*Number of intervals till stats oitput is displayed. Can be adjusted by the user. */
+#define PRINT_DELAY 5
 
 /*Struct that holds all NF state information */
 struct state_info {
         struct onvm_ft *ft;
         uint16_t print_delay;
         uint16_t num_stored;
-        uint64_t elapsed_cycles;
-        uint64_t last_cycles;
         uint64_t total_packets;
 };
 
 /*Struct that holds info about each flow, and is stored at each flow table entry */
 struct flow_stats {
-        int pkt_count;
-        uint64_t last_pkt_cycles;
-        int is_active;
         uint16_t target_nf;
 };
 
@@ -162,7 +159,7 @@ clear_entries(struct state_info *state_info) {
 }
 
 /*
- * Prints out information about flows stored in table
+ * Prints out information about flows stored in table.
  */
 static void
 do_stats_display(void) {
@@ -178,7 +175,7 @@ do_stats_display(void) {
 
         for (i = 0; i < NUM_REPLICAS; i++) {
                 printf("\nStatistics for Service ID %u ------------------------------",i + SERVICE_ID);
-                printf("\nPackets sent %d", packets_per_nf[i]);
+                printf("\nPackets sent: %d", packets_per_nf[i]);
                 printf("\nNumber of keys: %d", num_keys[i]);
         }
         printf(
@@ -193,7 +190,7 @@ do_stats_display(void) {
 
 /*
  * Adds an entry to the flow table. It first checks if the table is full, and
- * if so, it calls clear_entries() to free up space.
+ * if so, it calls clear_entries() to free up space. A target NF is set for new flows.
  */
 static struct flow_stats *
 table_add_entry(struct onvm_ft_ipv4_5tuple *key, struct state_info *state_info) {
@@ -211,27 +208,30 @@ table_add_entry(struct onvm_ft_ipv4_5tuple *key, struct state_info *state_info) 
         }
 
         uint32_t random_number = (rand() % 256);
+        uint16_t wa = weights[0];
+        uint16_t wb = weights[1] + weights[0];
+        uint16_t wc = weights[2] + weights[0] + weights[1];
         int tbl_index = onvm_ft_add_key(state_info->ft, key, (char **)&data);
         if (tbl_index < 0) {
                 return NULL;
         }
-        if (random_number < weights[0]) {
+        if (random_number < wa) {
                 data->target_nf = 2;
                 num_keys[0]++;
                 return data;
         }
-        if (random_number >= weights[0] &&
-            random_number < (weights[1] + weights[0])) {
+        if (random_number >= wa &&
+            random_number < wb) {
                 data->target_nf = 3;
                 num_keys[1]++;
                 return data;
         }
-        if (random_number >= weights[1] + weights[0] && random_number < weights[2] + weights[0] + weights[1]) {
+        if (random_number >= wb && random_number < wc) {
                 data->target_nf = 4;
                 num_keys[2]++;
                 return data;
         }
-        if (random_number >= weights[0] + weights[1] + weights[2]) {
+        if (random_number >= wc) {
                 data->target_nf = 5;
                 num_keys[3]++;
                 return data;
@@ -263,8 +263,6 @@ table_lookup_entry(struct rte_mbuf *pkt, struct state_info *state_info) {
                 printf("Some other error occurred with the packet hashing\n");
                 return NULL;
         } else {
-                data->pkt_count += 1;
-                data->last_pkt_cycles = state_info->elapsed_cycles;
                 return data;
         }
 }
@@ -355,9 +353,7 @@ main(int argc, char *argv[]) {
                 onvm_nflib_stop(nf_local_ctx);
                 rte_exit(EXIT_FAILURE, "Unable to initialize NF state");
         }
-
-        /* Default print delay set to five seconds. */
-        state_info->print_delay = EXPIRE_TIME;
+        state_info->print_delay = PRINT_DELAY;
         state_info->num_stored = 0;
         state_info->total_packets = 0;
 
