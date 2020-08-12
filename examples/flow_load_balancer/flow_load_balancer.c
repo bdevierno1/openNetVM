@@ -84,8 +84,11 @@ struct flow_stats {
 };
 
 struct state_info *state_info;
-static uint32_t weights[NUM_REPLICAS] = {64, 64, 64, 64};
+/*Default weights. To be adjusted depending on the number of packets being distributed across the replicas.*/
+static uint32_t weights[NUM_REPLICAS-1] = {64, 64, 64};
+/*Holds info about the number of packets forwarded to the target NF during an 'interval'*/
 static uint32_t packets_per_nf[4] = {0, 0, 0, 0};
+/*Holds info about the number of keys associated with a corresponding target NF*/
 static uint16_t num_keys[4] = {0, 0, 0, 0};
 
 static int
