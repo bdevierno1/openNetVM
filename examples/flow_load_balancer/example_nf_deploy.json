@@ -1,0 +1,21 @@
+{
+        "globals": [
+                {
+                        "directory": "output_files"
+                }
+        ],
+        "simple_forward": [
+                {
+                        "parameters": "2 -d 1"
+                },
+                {
+                        "parameters": "3 -d 1"
+                },
+                {
+                        "parameters": "4 -d 1"
+                },
+                {
+                        "parameters": "5 -d 1"
+                }
+        ]
+}
