@@ -87,8 +87,8 @@ struct flow_stats {
 };
 
 struct state_info *state_info;
-static double weights[NUM_REPLICAS] = {64, 64, 64, 64};
-static double packets_per_nf[4] = {0, 0, 0, 0};
+static uint32_t weights[NUM_REPLICAS] = {64, 64, 64, 64};
+static uint32_t packets_per_nf[4] = {0, 0, 0, 0};
 static uint16_t num_keys[4] = {0, 0, 0, 0};
 
 static int
@@ -154,6 +154,10 @@ clear_entries(struct state_info *state_info) {
                         state_info->num_stored++;
                 }
         }
+        num_keys[0] = 0;
+        num_keys[1] = 0;
+        num_keys[2] = 0;
+        num_keys[3] = 0;
         return 0;
 }
 
@@ -174,16 +178,16 @@ do_stats_display(void) {
 
         for (i = 0; i < NUM_REPLICAS; i++) {
                 printf("\nStatistics for Service ID %u ------------------------------",i + SERVICE_ID);
-                // printf("\nPackets sent %u", packets_per_nf[i]);
-                // printf("Number of keys: %u"num_keys[i]);
+                printf("\nPackets sent %d", packets_per_nf[i]);
+                printf("\nNumber of keys: %d", num_keys[i]);
         }
         printf(
             "\nAggregate statistics ==============================="
             "\nTotal packets received: %14" PRIu64,
             state_info->total_packets);
-        printf("\nWeight 0: %f", weights[0]);
-        printf("\nWeight 1: %f", weights[1]);
-        printf("\nWeight 2: %f", weights[2]);
+        printf("\nWeight 0: %d", weights[0]);
+        printf("\nWeight 1: %d", weights[1]);
+        printf("\nWeight 2: %d", weights[2]);
         printf("\n====================================================\n");
 }
 
@@ -206,7 +210,7 @@ table_add_entry(struct onvm_ft_ipv4_5tuple *key, struct state_info *state_info) 
                 }
         }
 
-        int random_number = (rand() % 256);
+        uint32_t random_number = (rand() % 256);
         int tbl_index = onvm_ft_add_key(state_info->ft, key, (char **)&data);
         if (tbl_index < 0) {
                 return NULL;
