@@ -22,31 +22,31 @@
 
 uint16_t
 get_ipv4_dst(struct rte_mbuf *pkt, struct state_info *stats) {
-    struct data *data = NULL;
-    struct onvm_ft_ipv4_5tuple key;
-    uint8_t dst;
+        struct data *data = NULL;
+        struct onvm_ft_ipv4_5tuple key;
+        uint8_t dst;
 
-    int ret = onvm_ft_fill_key(&key, pkt);
+        int ret = onvm_ft_fill_key(&key, pkt);
 
-    if (ret < 0)
-            return -1;
+        if (ret < 0)
+                return -1;
 
-    int tbl_index = onvm_ft_lookup_key(em_tbl, &key, (char **)&data);
-    if (tbl_index < 0)
-            return -1;
-    dst = data->dest;
-    return dst;
+        int tbl_index = onvm_ft_lookup_key(em_tbl, &key, (char **)&data);
+        if (tbl_index < 0)
+                return -1;
+        dst = data->dest;
+        return dst;
 }
 
 int
 setup_hash(struct state_info *stats) {
-    em_tbl = onvm_ft_create(HASH_ENTRIES, sizeof(struct data));
-    if (em_tbl == NULL) {
-            printf("Unable to create flow table");
-            return -1;
-    }
-	add_rules(em_tbl, "ipv4_rules_file.txt", stats->print_keys, ONVM_TABLE_EM);
-    return 0;
+        em_tbl = onvm_ft_create(HASH_ENTRIES, sizeof(struct data));
+        if (em_tbl == NULL) {
+                printf("Unable to create flow table");
+                return -1;
+        }
+        add_rules(em_tbl, "ipv4_rules_file.txt", stats->print_keys, ONVM_TABLE_EM);
+        return 0;
 }
 const char *
 get_cont_rx_queue_name(unsigned id) {
@@ -66,6 +66,15 @@ get_cont_tx_queue_name(unsigned id) {
         return buffer;
 }
 
+const char *
+get_cont_pipe_name(unsigned id) {
+        /* buffer for return value. Size calculated by %u being replaced
+         * by maximum 3 digits (plus an extra byte for safety) */
+        static char buffer[sizeof(CONT_NF_PIPE_NAME) + 4];
+        sprintf(buffer, CONT_NF_PIPE_NAME, id);
+        return buffer;
+}
+
 void
 nf_cont_init_rings(struct container_nf *nf) {
         unsigned instance_id;
@@ -78,10 +87,8 @@ nf_cont_init_rings(struct container_nf *nf) {
         socket_id = rte_socket_id();
         rq_name = get_cont_rx_queue_name(instance_id);
         tq_name = get_cont_tx_queue_name(instance_id);
-        nf->rx_q =
-                rte_ring_create(rq_name, ringsize, socket_id, RING_F_SC_DEQ); /* multi prod, single cons */
-        nf->tx_q =
-                rte_ring_create(tq_name, ringsize, socket_id, RING_F_SC_DEQ); /* multi prod, single cons */
+        nf->rx_q = rte_ring_create(rq_name, ringsize, socket_id, RING_F_SC_DEQ); /* multi prod, single cons */
+        nf->tx_q = rte_ring_create(tq_name, ringsize, socket_id, RING_F_SC_DEQ); /* multi prod, single cons */
 
         if (nf->rx_q == NULL)
                 rte_exit(EXIT_FAILURE, "Cannot create rx ring queue for NF %u\n", instance_id);

@@ -43,6 +43,7 @@
 #define NUM_CONTAINERS 4
 #define CONT_NF_RXQ_NAME "Cont_Client_%u_RX"
 #define CONT_NF_TXQ_NAME "Cont_Client_%u_TX"
+#define CONT_NF_PIPE_NAME "files/Cont_Client_%u_PIPE"
 
 /* This defines the maximum possible number entries in out flow table. */
 #define HASH_ENTRIES 100 /// TODO: Possibly move this over to state struct.
@@ -68,6 +69,9 @@ struct container_nf {
         struct rte_ring *tx_q;
         uint16_t instance_id;
         uint16_t service_id;
+
+        const char *pipe_file;
+        int fd;
 };
 /* Function pointers for LPM or EM functionality. */
 

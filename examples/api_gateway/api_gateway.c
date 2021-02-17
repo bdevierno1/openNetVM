@@ -47,6 +47,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/queue.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <rte_common.h>
@@ -181,26 +182,26 @@ nf_setup(struct onvm_nf_local_ctx *nf_local_ctx) {
 
 void
 init_cont_nf(struct state_info *stats) {
-         if (stats->max_containers <= 0) {
+        if (stats->max_containers <= 0) {
                 stats->max_containers = 4;
         }
         uint8_t max_nfs = stats->max_containers;
         /* set up array for NF tx data */
         mz_cont_nf = rte_memzone_reserve("container nf array", sizeof(*cont_nfs) * max_nfs, rte_socket_id(), 0);
-        if (mz_cont_nf==NULL)
+        if (mz_cont_nf == NULL)
                 rte_exit(EXIT_FAILURE, "Cannot reserve memory zone for nf information\n");
         memset(mz_cont_nf->addr, 0, sizeof(*cont_nfs) * max_nfs);
         cont_nfs = mz_cont_nf->addr;
-
         printf("Number of containers to be created: %d\n", stats->max_containers);
-        for (int i=0; i<stats->max_containers; i++) {
-                struct container_nf * nf;
+        for (int i = 1; i < stats->max_containers+1; i++) {
+                struct container_nf *nf;
                 nf = &cont_nfs[i];
                 nf->instance_id = i + MAX_NFS;
                 nf->service_id = i + MAX_NFS;
-                nf_cont_init_rings(nf);
+                nf->pipe_file = get_cont_pipe_name(nf->instance_id);
+                mknod(nf->pipe_file, S_IFIFO|0640, 0);
+                nf->fd = open(nf->pipe_file, O_WRONLY);
         }
-        rte_memzone_free(mz_cont_nf);
 }
 int
 main(int argc, char *argv[]) {
@@ -245,11 +246,12 @@ main(int argc, char *argv[]) {
         if (parse_app_args(argc, argv, progname, stats) < 0) {
                 onvm_nflib_stop(nf_local_ctx);
                 rte_exit(EXIT_FAILURE, "Invalid command-line arguments\n");
-        }        
+        }
 
         onvm_nflib_run(nf_local_ctx);
 
         onvm_nflib_stop(nf_local_ctx);
+        rte_memzone_free(mz_cont_nf);
         /* Stats will be freed by manager. Do not put table data structures in the stats struct as doing so will result
            in seg fault. Update stats to be deallocated by NF? */
         onvm_ft_free(em_tbl);
