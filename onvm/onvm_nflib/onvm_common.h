@@ -377,6 +377,7 @@ struct ft_request {
 /* define common names for structures shared between server and NF */
 #define MP_NF_RXQ_NAME "MProc_Client_%u_RX"
 #define MP_NF_TXQ_NAME "MProc_Client_%u_TX"
+#define CONT_NF_PIPE_NAME "Cont_Client_%u_PIPE"
 #define MP_CLIENT_SEM_NAME "MProc_Client_%u_SEM"
 #define PKTMBUF_POOL_NAME "MProc_pktmbuf_pool"
 #define MZ_PORT_INFO "MProc_port_info"
@@ -439,6 +440,15 @@ get_tx_queue_name(unsigned id) {
         static char buffer[sizeof(MP_NF_TXQ_NAME) + 2];
 
         snprintf(buffer, sizeof(buffer) - 1, MP_NF_TXQ_NAME, id);
+        return buffer;
+}
+
+static inline const char *
+get_cont_pipe_name(unsigned id) {
+        /* buffer for return value. Size calculated by %u being replaced
+         * by maximum 3 digits (plus an extra byte for safety) */
+        static char buffer[sizeof(CONT_NF_PIPE_NAME) + 4];
+        sprintf(buffer, CONT_NF_PIPE_NAME, id);
         return buffer;
 }
 
